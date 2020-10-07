@@ -102,7 +102,9 @@ pub mod transport {
                         Ok((mut m, _unused)) => {
                             println!("onward route:");
                             m.onward_route.print_route();
-                            if m.onward_route.addresses[0].a_type == AddressType::Udp {
+                            if !m.onward_route.addresses.is_empty()
+                                && m.onward_route.addresses[0].a_type == AddressType::Udp
+                            {
                                 match self.send_message(m) {
                                     Err(s) => Err(s),
                                     Ok(()) => Ok(true),
