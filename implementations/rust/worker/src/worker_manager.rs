@@ -1,19 +1,16 @@
 use hashbrown::*;
-use ockam_common::commands::ockam_commands::RouterCommand::Register;
-use ockam_common::commands::ockam_commands::{
-    ChannelCommand, OckamCommand, RouterCommand, WorkerCommand,
-};
-use ockam_message::message::Address::{ChannelAddress, WorkerAddress};
 use ockam_message::message::{Address, AddressType, Message, MessageType, Receiver, Route, Sender};
 use ockam_router::router::Direction;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
+use ockam_system::commands::commands::{OckamCommand, RouterCommand};
 
 pub struct WorkerManager {
     tx: std::sync::mpsc::Sender<OckamCommand>,
     rx: std::sync::mpsc::Receiver<OckamCommand>,
     router_tx: std::sync::mpsc::Sender<OckamCommand>,
     workers: hashbrown::HashMap<String, Arc<Mutex<dyn Receiver + 'static + Send>>>,
+    sender_ref: Option<Arc<Mutex<Sender>>>
 }
 
 impl Sender for WorkerManager {
@@ -37,17 +34,20 @@ impl WorkerManager {
             rx,
             router_tx,
             workers: hashbrown::HashMap::new(),
+            sender_ref: None,
         }
     }
 
-    pub fn register(
-        &mut self,
-        a: Address,
-        r: Arc<Mutex<dyn Receiver + 'static + Send>>,
-    ) -> Result<(), String> {
-        self.workers.insert(a.as_string(), r);
-        Ok(())
-    }
+    //pub fn initialize()
+
+    // pub fn register(
+    //     &mut self,
+    //     a: Address,
+    //     r: Arc<Mutex<dyn Receiver + 'static + Send>>,
+    // ) -> Result<Sender, String> {
+    //     self.workers.insert(a.as_string(), r);
+    //
+    // }
 
     pub fn poll(&mut self) -> bool {
         //    pub fn poll(wm: Arc<Mutex<WorkerManager>>) -> bool {

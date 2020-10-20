@@ -1,8 +1,6 @@
 #[allow(unused)]
 
 pub mod transport {
-    use ockam_common::commands::ockam_commands::RouterCommand::ReceiveMessage;
-    use ockam_common::commands::ockam_commands::*;
     use ockam_message::message::*;
     use ockam_router::router::Router;
     use std::convert::TryFrom;
@@ -14,6 +12,8 @@ pub mod transport {
     use std::sync::mpsc::channel;
     use std::sync::Arc;
     use std::{io, thread, time};
+    use ockam_system::commands::commands::{OckamCommand, TransportCommand, RouterCommand};
+    use ockam_system::commands::commands::RouterCommand::ReceiveMessage;
 
     pub struct UdpTransport {
         socket: UdpSocket,

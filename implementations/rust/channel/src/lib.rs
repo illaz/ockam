@@ -27,8 +27,6 @@ extern crate ockam_common;
 
 use core::marker::PhantomData;
 use error::*;
-use ockam_common::commands::ockam_commands::OckamCommand::Router;
-use ockam_common::commands::ockam_commands::{ChannelCommand, OckamCommand, RouterCommand};
 use ockam_kex::{CompletedKeyExchange, KeyExchanger, NewKeyExchanger};
 use ockam_message::message::{
     Address, AddressType, Codec, Message, MessageType, Route, RouterAddress,
@@ -45,6 +43,9 @@ use std::{
         Arc, Mutex,
     },
 };
+use ockam_vault::types::PublicKey;
+use ockam_system::commands::commands::{OckamCommand, RouterCommand, WorkerCommand, TransportCommand, ChannelCommand};
+use ockam_system::commands::commands::OckamCommand::Router;
 
 enum ExchangerRole {
     Initiator,
@@ -117,8 +118,8 @@ impl<I: KeyExchanger, R: KeyExchanger, E: NewKeyExchanger<I, R>> ChannelManager<
         while got_message {
             match self.receiver.try_recv() {
                 Ok(c) => match c {
-                    OckamCommand::Channel(ChannelCommand::Initiate(route, return_address)) => {
-                        self.get_new_channel(route, return_address)?;
+                    OckamCommand::Channel(ChannelCommand::Initiate(route, return_address, key)) => {
+                        self.get_new_channel(route, return_address, key)?;
                     }
                     OckamCommand::Channel(ChannelCommand::Stop) => {
                         self.channels.clear();
@@ -201,6 +202,7 @@ impl<I: KeyExchanger, R: KeyExchanger, E: NewKeyExchanger<I, R>> ChannelManager<
         &mut self,
         mut route: Route,
         return_address: Address,
+        key: Option<PublicKey>
     ) -> Result<Address, ChannelError> {
         // Remember who to notify when the channel is secure
         let pending_return = RouterAddress::from_address(return_address).unwrap();
@@ -208,7 +210,7 @@ impl<I: KeyExchanger, R: KeyExchanger, E: NewKeyExchanger<I, R>> ChannelManager<
         // Generate 2 channel addresses, one each for clear and cipher text
         let mut clear_address = String::from("00000000");
         let mut cipher_address = String::from("00000000");
-        if let Some((clear, cipher)) = self.create_channel(ExchangerRole::Initiator) {
+        if let Some((clear, cipher)) = self.create_channel(ExchangerRole::Initiator, key) {
             clear_address = clear;
             cipher_address = cipher;
         }
@@ -323,7 +325,7 @@ impl<I: KeyExchanger, R: KeyExchanger, E: NewKeyExchanger<I, R>> ChannelManager<
     fn handle_m1_recv(&mut self, m: Message, address: String) -> Result<(), ChannelError> {
         if let Some(channel) = self.channels.get_mut(&address) {
             let mut channel = &mut *channel.lock().unwrap();
-            let m1 = channel.agreement.process(&m.message_body)?;
+            let m1 = channel.new_key_exchanger.initiator().process(&m.message_body)?;
             let m2 = channel.agreement.process(&m1)?;
             let m = Message {
                 onward_route: m.return_route.clone(),
@@ -444,21 +446,24 @@ impl<I: KeyExchanger, R: KeyExchanger, E: NewKeyExchanger<I, R>> ChannelManager<
         }
     }
 
-    fn create_channel(&mut self, role: ExchangerRole) -> Option<(String, String)> {
+    fn create_channel(&mut self, role: ExchangerRole, key: Option<PublicKey>) -> Option<(String, String)> {
         let mut rng = thread_rng();
         let clear_u32 = rng.gen::<u32>();
         let cipher_u32 = rng.gen::<u32>();
         let channel = match role {
-            ExchangerRole::Initiator => Arc::new(Mutex::new(Channel::new(
+            ExchangerRole::Initiator => {
+                Arc::new(Mutex::new(Channel::new(
                 clear_u32,
                 cipher_u32,
-                Box::new(self.new_key_exchanger.initiator()),
-            ))),
-            ExchangerRole::Responder => Arc::new(Mutex::new(Channel::new(
+                Box::new(self.new_key_exchanger.initiator(key)),
+                )))
+            },
+            ExchangerRole::Responder => { Arc::new(Mutex::new(Channel::new(
                 clear_u32,
                 cipher_u32,
-                Box::new(self.new_key_exchanger.responder()),
-            ))),
+                Box::new(self.new_key_exchanger.responder(key)),
+                )))
+            },
         };
         let clear_address = Address::ChannelAddress(clear_u32.to_le_bytes().to_vec());
         let cipher_address = Address::ChannelAddress(cipher_u32.to_le_bytes().to_vec());
@@ -471,6 +476,7 @@ impl<I: KeyExchanger, R: KeyExchanger, E: NewKeyExchanger<I, R>> ChannelManager<
 
 struct Channel {
     completed_key_exchange: Option<CompletedKeyExchange>,
+    remote_public_key: Option<PublicKey>,
     cleartext_address: u32,
     ciphertext_address: u32,
     agreement: Box<dyn KeyExchanger>,

@@ -12,71 +12,9 @@ use std::str;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
-use structopt::StructOpt;
-
-#[derive(StructOpt, Debug)]
-#[structopt(author = "Ockam Developers (ockam.io)")]
-pub struct Args {
-    /// Local address to bind socket
-    #[structopt(short = "l", long = "local")]
-    local_socket: Option<String>,
-
-    /// Remote address to send to
-    #[structopt(short = "r", long = "remote")]
-    remote_socket: Option<String>,
-
-    /// Via - intermediate router
-    #[structopt(short = "v", long = "via")]
-    via_socket: Option<String>,
-
-    /// Worker
-    #[structopt(short = "w", long = "worker")]
-    worker_addr: Option<String>,
-}
-
-pub fn parse_args(args: Args) -> Result<(RouterAddress, Route, RouterAddress), String> {
-    let mut local_socket: RouterAddress = RouterAddress {
-        a_type: AddressType::Udp,
-        length: 7,
-        address: (Address::UdpAddress(SocketAddr::from_str("127.0.0.1:4050").unwrap())),
-    };
-    if let Some(l) = args.local_socket {
-        if let Ok(sa) = SocketAddr::from_str(&l) {
-            if let Some(ra) = RouterAddress::from_address(Address::UdpAddress(sa)) {
-                local_socket = ra;
-            }
-        }
-    } else {
-        return Err("local socket address required: -l xxx.xxx.xxx.xxx:pppp".to_string());
-    }
-
-    let mut route = Route { addresses: vec![] };
-
-    if let Some(vs) = args.via_socket {
-        if let Ok(sa) = SocketAddr::from_str(&vs) {
-            if let Some(ra) = RouterAddress::from_address(Address::UdpAddress(sa)) {
-                route.addresses.push(ra);
-            }
-        }
-    };
-
-    let mut worker_address = RouterAddress::worker_router_address_from_str("00000000").unwrap();
-    if let Some(rs) = args.remote_socket {
-        if let Ok(sa) = SocketAddr::from_str(&rs) {
-            if let Some(ra) = RouterAddress::from_address(Address::UdpAddress(sa)) {
-                route.addresses.push(ra);
-                route
-                    .addresses
-                    .push(RouterAddress::channel_router_address_from_str("00000000").unwrap());
-                if let Some(wa) = args.worker_addr {
-                    worker_address = RouterAddress::worker_router_address_from_str(&wa).unwrap();
-                }
-            }
-        }
-    };
-
-    Ok((local_socket, route, worker_address))
-}
+use std::env::Args;
+use ockam_vault::types::{SecretKeyAttributes, SecretKeyType, SecretPurposeType, SecretPersistenceType};
+use ockam_vault::DynVault;
 
 pub struct TestWorker {
     rx: std::sync::mpsc::Receiver<OckamCommand>,
@@ -120,30 +58,6 @@ impl TestWorker {
             toggle: 0,
         })
     }
-
-    // pub fn request_channel(&mut self, mut m: Message) -> Result<(), String> {
-    //     let pending_message = Message {
-    //         onward_route: m.onward_route.clone(),
-    //         return_route: m.return_route.clone(),
-    //         message_type: MessageType::Payload,
-    //         message_body: m.message_body.clone(),
-    //     };
-    //     self.pending_message = Some(pending_message);
-    //     m.onward_route.addresses.insert(
-    //         0,
-    //         RouterAddress::channel_router_address_from_str("00000000").unwrap(),
-    //     );
-    //     m.return_route.addresses.insert(
-    //         0,
-    //         RouterAddress::from_address(self.address.clone()).unwrap(),
-    //     );
-    //     m.message_type = MessageType::None;
-    //     m.message_body = vec![];
-    //     self.router_tx
-    //         .send(OckamCommand::Router(RouterCommand::SendMessage(m)))
-    //         .unwrap();
-    //     Ok(())
-    // }
 
     pub fn handle_send(&mut self, mut m: Message) -> Result<(), String> {
         if self.channel_address.as_string() == *"00000000" {
@@ -313,6 +227,16 @@ pub fn start_node(
     let _join_thread: thread::JoinHandle<_> = thread::spawn(move || {
         type XXChannelManager = ChannelManager<XXInitiator, XXResponder, XXNewKeyExchanger>;
         let vault = Arc::new(Mutex::new(DefaultVault::default()));
+
+        let attributes = SecretKeyAttributes {
+            xtype: SecretKeyType::Curve25519,
+            purpose: SecretPurposeType::KeyAgreement,
+            persistence: SecretPersistenceType::Persistent,
+        };
+
+        // let static_secret_handle = vault.secret_generate(attributes)?;
+        // let static_public_key = vault.secret_public_key_get(static_secret_handle)?;
+
         let new_key_exchanger = XXNewKeyExchanger::new(
             CipherSuite::Curve25519AesGcmSha256,
             vault.clone(),
@@ -334,6 +258,7 @@ pub fn start_node(
             channel_tx.send(OckamCommand::Channel(ChannelCommand::Initiate(
                 network_route,
                 Address::WorkerAddress(hex::decode("00010203").unwrap()),
+                None,
             )));
         }
 
@@ -358,30 +283,4 @@ pub fn start_node(
         };
         worker_tx.send(OckamCommand::Worker(WorkerCommand::SendMessage(m)));
     }
-}
-
-fn main() {
-    let args = Args::from_args();
-    println!("{:?}", args);
-    let local_socket: RouterAddress;
-    let route: Route;
-    let worker: RouterAddress;
-    match parse_args(args) {
-        Ok((ls, r, w)) => {
-            local_socket = ls;
-            route = r;
-            worker = w;
-        }
-        Err(s) => {
-            println!("{}", s);
-            return;
-        }
-    }
-    let is_initiator = !route.addresses.is_empty();
-
-    println!("route: {:?}", route);
-
-    start_node(local_socket, route, worker, is_initiator);
-
-    thread::sleep(time::Duration::from_millis(1000000));
 }

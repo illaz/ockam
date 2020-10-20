@@ -1,12 +1,12 @@
 #![allow(unused)]
 pub mod router {
-    use ockam_common::commands::ockam_commands::*;
     use ockam_message::message::*;
     use std::convert::TryFrom;
     use std::fs::OpenOptions;
     use std::sync::mpsc::channel;
     use std::sync::{Arc, Mutex};
     use std::{thread, time};
+    use ockam_system::commands::commands::{OckamCommand, RouterCommand, WorkerCommand, TransportCommand, ChannelCommand};
 
     pub struct Router {
         registry: Vec<Option<std::sync::mpsc::Sender<OckamCommand>>>,
