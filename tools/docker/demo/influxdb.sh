@@ -33,7 +33,7 @@ case $1 in
         # start the responder (sink) end, containing `influxdb` and `ockamd`, with configuration to 
         # send `influxdb` measurement data via `ockamd` over HTTP.
         docker run -d --network="host" --name="influxdb-ockamd" ockam/influxdb-ockamd:0.1.0 \
-            --role=responder \
+            --role=sink \
             --local-socket=127.0.0.1:52440 \
             --addon=influxdb,ockam_demo,http://localhost:8086 > /dev/null
         docker logs influxdb-ockamd
